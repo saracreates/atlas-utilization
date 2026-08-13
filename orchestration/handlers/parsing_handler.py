@@ -171,11 +171,12 @@ class ParsingHandler(StateHandler):
                 on_success=on_success,
                 on_error=on_error
             ):
-                if parsing_config.kinematic_cuts or parsing_config.particle_counts:
+                if parsing_config.kinematic_cuts or parsing_config.particle_counts or parsing_config.overlap_removal:
                     filtered = apply_parsing_event_selection(
                         batch.events,
                         particle_counts=parsing_config.particle_counts,
                         kinematic_cuts=parsing_config.kinematic_cuts,
+                        overlap_removal=parsing_config.overlap_removal,
                     )
                     batch = EventBatch(
                         events=filtered,

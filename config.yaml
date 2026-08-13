@@ -119,6 +119,12 @@ parsing_task_config:
     photons:   { pt_min: 25000.0, eta_max: 2.37 }
     taus:      { pt_min: 20000.0, eta_max: 2.5 }
 
+  # Delta-R overlap removal - rules run in order! - Thresholds are NOT optimized / thouroughly selected, just a starting point
+  overlap_removal:
+    - { keep: taus,    remove: photons, delta_r_min: 0.2 }  # seen in hadronic tau's pi0->gamma gamma
+    - { keep: photons, remove: jets,    delta_r_min: 0.4 }
+    - { keep: taus,    remove: jets,    delta_r_min: 0.2 }
+
 # --- 2. Mass Calculation -----------------------------------------------------
 # Computes invariant masses for every valid particle combination per final state.
 mass_calculation_task_config:

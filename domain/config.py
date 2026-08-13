@@ -61,7 +61,9 @@ class ParsingConfig:
     # Optional selection (from YAML): applied after reading each file, before chunking
     particle_counts: Optional[dict] = None
     kinematic_cuts: Optional[dict] = None
-    
+    # Sequential delta-R overlap removal rules: ({"keep": ..., "remove": ..., "delta_r_min": ...}, ...)
+    overlap_removal: Optional[tuple[dict, ...]] = None
+
     def __post_init__(self):
         """Validate parsing configuration."""
         if self.threads <= 0:
@@ -83,6 +85,19 @@ class ParsingConfig:
         if self.enable_jet_tagging and not self.jet_btagging_thresholds:
             # TODO add algorithm-specific validation
             raise ValueError("jet_btagging_thresholds must be specified when enable_jet_tagging is set")
+        if self.overlap_removal:
+            for rule in self.overlap_removal:
+                if not isinstance(rule, dict):
+                    raise ValueError(f"overlap_removal rule must be a dict, got {type(rule)}: {rule}")
+                missing = {"keep", "remove", "delta_r_min"} - rule.keys()
+                if missing:
+                    raise ValueError(f"overlap_removal rule missing required key(s) {missing}: {rule}")
+                if not isinstance(rule["keep"], str) or not isinstance(rule["remove"], str):
+                    raise ValueError(f"overlap_removal 'keep'/'remove' must be strings: {rule}")
+                if rule["keep"] == rule["remove"]:
+                    raise ValueError(f"overlap_removal 'keep' and 'remove' must differ: {rule}")
+                if float(rule["delta_r_min"]) <= 0:
+                    raise ValueError(f"overlap_removal delta_r_min must be positive: {rule}")
 
 
 @dataclass(frozen=True)
@@ -308,6 +323,7 @@ class PipelineConfig:
                 jet_btagging_thresholds=parsing_dict.get("jet_btagging_thresholds", None),
                 particle_counts=parsing_dict.get("particle_counts"),
                 kinematic_cuts=parsing_dict.get("kinematic_cuts"),
+                overlap_removal=tuple(parsing_dict["overlap_removal"]) if parsing_dict.get("overlap_removal") else None,
             )
         
         # Parse mass calculation config if enabled

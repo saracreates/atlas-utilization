@@ -8,10 +8,13 @@ import awkward as ak
 import numpy as np
 import vector
 import gc
-from typing import Dict, Iterator, Tuple, Optional
+import logging
+from typing import Any, Dict, Iterator, List, Tuple, Optional
 
 from services.calculations import consts
 from services.calculations.combinatorics import get_count, get_start
+
+logger = logging.getLogger(__name__)
 
 
 def calc_inv_mass(particle_events: ak.Array) -> ak.Array:
@@ -314,6 +317,88 @@ def filter_events_by_kinematics(
         filtered_events[obj] = particles[mask]
 
     return ak.zip(filtered_events, depth_limit=1)
+
+
+def remove_overlapping_objects(
+    events: ak.Array,
+    overlap_rules: Optional[List[Dict[str, Any]]],
+) -> ak.Array:
+    """
+    Sequential delta-R overlap removal between object collections.
+
+    Each rule is ``{"keep": <canonical field>, "remove": <canonical field>,
+    "delta_r_min": float}``: objects in ``remove`` within ``delta_r_min`` of
+    any surviving object in ``keep`` (same event) are dropped. Rules are
+    applied in list order, so a later rule sees collections already thinned
+    by earlier rules. Field names must already be canonical (e.g.
+    ``"Taus"``, not ``"taus"``) — see
+    ``event_selection.canonical_particle_field_name``.
+    """
+    if not overlap_rules or len(events) == 0:
+        return events
+
+    result = {field: events[field] for field in events.fields}
+
+    for rule in overlap_rules:
+        keep_field = rule["keep"]
+        remove_field = rule["remove"]
+        delta_r_min = float(rule["delta_r_min"])
+
+        if keep_field not in result or remove_field not in result:
+            logger.warning(
+                "overlap_removal rule references unknown field(s) keep=%r remove=%r "
+                "(available fields: %s); skipping rule",
+                keep_field, remove_field, list(result.keys()),
+            )
+            continue
+
+        keep_particles = result[keep_field]
+        remove_particles = result[remove_field]
+
+        if len(keep_particles.fields) == 0 or len(remove_particles.fields) == 0:
+            continue
+        if not (hasattr(keep_particles, "pt") and hasattr(remove_particles, "pt")):
+            logger.warning(
+                "overlap_removal rule keep=%r remove=%r: one or both collections "
+                "lack pt/eta/phi, cannot compute delta-R; skipping rule",
+                keep_field, remove_field,
+            )
+            continue
+
+        keep_vec = vector.zip({
+            "pt": keep_particles.pt,
+            "phi": keep_particles.phi,
+            "eta": keep_particles.eta,
+            "mass": get_particle_known_mass(keep_field, keep_particles),
+        })
+        remove_vec = vector.zip({
+            "pt": remove_particles.pt,
+            "phi": remove_particles.phi,
+            "eta": remove_particles.eta,
+            "mass": get_particle_known_mass(remove_field, remove_particles),
+        })
+
+        # "remove" is the outer key (axis 1) and "keep" is nested inside it
+        # (axis 2), so reducing the innermost axis (-1) yields, per
+        # remove-object, "is it close to ANY keep-object" — a mask shaped
+        # like remove_particles itself, safe to index it with directly.
+        pairs = ak.cartesian({"remove": remove_vec, "keep": keep_vec}, nested=True, axis=1)
+        delta_r = pairs["remove"].deltaR(pairs["keep"])
+        too_close = ak.any(delta_r < delta_r_min, axis=-1)
+
+        kept_mask = ~too_close
+        removed_count = int(ak.sum(too_close))
+        if removed_count:
+            total_count = int(ak.sum(ak.num(remove_particles)))
+            pct = (removed_count / total_count * 100.0) if total_count else 0.0
+            logger.debug(
+                "overlap_removal keep=%r remove=%r delta_r_min=%.3f: dropped %d/%d (%.1f%%) %s object(s)",
+                keep_field, remove_field, delta_r_min, removed_count, total_count, pct, remove_field,
+            )
+
+        result[remove_field] = remove_particles[kept_mask]
+
+    return ak.zip(result, depth_limit=1)
 
 
 def find_actual_field_name(fields: list, obj_name: str) -> Optional[str]:

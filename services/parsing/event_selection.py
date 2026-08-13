@@ -6,7 +6,7 @@ Maps YAML keys (e.g. ``electrons``) to awkward record fields (``Electrons``).
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import awkward as ak
 import numpy as np
@@ -55,13 +55,28 @@ def normalize_yaml_kinematic_cuts(raw: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def normalize_yaml_overlap_removal(raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Map YAML particle keys in each rule's ``keep``/``remove`` to canonical field names."""
+    rules: List[Dict[str, Any]] = []
+    for rule in raw:
+        rules.append({
+            "keep": canonical_particle_field_name(rule["keep"]),
+            "remove": canonical_particle_field_name(rule["remove"]),
+            "delta_r_min": float(rule["delta_r_min"]),
+        })
+    return rules
+
+
 def apply_parsing_event_selection(
     events: ak.Array,
     particle_counts: Optional[Dict[str, Any]] = None,
     kinematic_cuts: Optional[Dict[str, Any]] = None,
+    overlap_removal: Optional[List[Dict[str, Any]]] = None,
 ) -> ak.Array:
     """
-    Kinematic cuts are applied per particle type first, then event-level count ranges.
+    Kinematic cuts are applied per particle type first, then delta-R overlap
+    removal between collections, then event-level particle count ranges —
+    count ranges must see post-overlap-removal counts, not raw ones.
     """
     if kinematic_cuts:
         by_obj: Dict[str, Dict[str, Any]] = {}
@@ -71,6 +86,10 @@ def apply_parsing_event_selection(
             cname = canonical_particle_field_name(key)
             by_obj[cname] = normalize_yaml_kinematic_cuts(val)
         events = physics_calcs.filter_events_by_kinematics(events, by_obj)
+
+    if overlap_removal:
+        rules = normalize_yaml_overlap_removal(overlap_removal)
+        events = physics_calcs.remove_overlapping_objects(events, rules)
 
     if particle_counts:
         mapped: Dict[str, Any] = {}
