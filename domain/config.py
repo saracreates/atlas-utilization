@@ -170,6 +170,7 @@ class PostProcessingConfig:
 
     z_peak_cutoff: float = 115.0
     max_mass_cutoff: float = 10_000.0
+    enable_peak_removal: bool = True
 
     def __post_init__(self):
         """Validate post-processing configuration."""
@@ -183,6 +184,8 @@ class PostProcessingConfig:
             raise ValueError(f"z_peak_cutoff must be non-negative, got {self.z_peak_cutoff}")
         if self.max_mass_cutoff < 0:
             raise ValueError(f"max_mass_cutoff must be non-negative, got {self.max_mass_cutoff}")
+        if not isinstance(self.enable_peak_removal, bool):
+            raise ValueError("enable_peak_removal must be a boolean")
 
 
 @dataclass(frozen=True)
@@ -365,6 +368,7 @@ class PipelineConfig:
                 peak_detection_bin_width_gev=post_dict.get("peak_detection_bin_width_gev", 10.0),
                 z_peak_cutoff=post_dict.get("z_peak_cutoff", 115.0),
                 max_mass_cutoff=post_dict.get("max_mass_cutoff", 10_000.0),
+                enable_peak_removal=post_dict.get("enable_peak_removal", True),
             )
         
         # Parse histogram creation config if enabled

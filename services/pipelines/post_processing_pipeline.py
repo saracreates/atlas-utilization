@@ -77,6 +77,7 @@ def process_im_arrays(config: Dict, file_list: Optional[List[str]] = None) -> Li
     peak_detection_bin_width_gev = config["peak_detection_bin_width_gev"]
     z_peak_cutoff = config["z_peak_cutoff"]
     max_mass_cutoff = config["max_mass_cutoff"]
+    enable_peak_removal = config.get("enable_peak_removal", True)
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -139,7 +140,7 @@ def process_im_arrays(config: Dict, file_list: Optional[List[str]] = None) -> Li
         try:
             output_files = _process_single_array(
                 im_array_filename, input_dir, output_dir, peak_detection_bin_width_gev, logger,
-                z_peak_cutoff, max_mass_cutoff
+                z_peak_cutoff, max_mass_cutoff, enable_peak_removal
             )
             if output_files:
                 processed_files.extend(output_files)
@@ -156,6 +157,7 @@ def _process_im_sqlite(config: Dict, sqlite_files: List[str], logger: logging.Lo
     bin_width = config["peak_detection_bin_width_gev"]
     z_peak_cutoff = config["z_peak_cutoff"]
     max_mass_cutoff = config["max_mass_cutoff"]
+    enable_peak_removal = config.get("enable_peak_removal", True)
 
     batch_idx = config.get("batch_job_index")
     if batch_idx is None:
@@ -225,8 +227,11 @@ def _process_im_sqlite(config: Dict, sqlite_files: List[str], logger: logging.Lo
             if len(arr) == 0:
                 continue
 
-            peak_mass = _find_rightmost_highest_peak(arr, bin_width, logger)
-            filtered = arr if peak_mass is None else arr[arr >= peak_mass]
+            if enable_peak_removal:
+                peak_mass = _find_rightmost_highest_peak(arr, bin_width, logger)
+                filtered = arr if peak_mass is None else arr[arr >= peak_mass]
+            else:
+                filtered = arr
             if len(filtered) == 0:
                 continue
 
@@ -255,7 +260,8 @@ def _process_single_array(
     filename: str, input_dir: str, output_dir: str,
     peak_detection_bin_width_gev: float, logger: logging.Logger,
     z_peak_cutoff: float,
-    max_mass_cutoff: float
+    max_mass_cutoff: float,
+    enable_peak_removal: bool = True
 ) -> List[str]:
     file_path = os.path.join(input_dir, filename)
     im_array = np.load(file_path)
@@ -274,17 +280,19 @@ def _process_single_array(
         return []
 
     bin_width = peak_detection_bin_width_gev
-    peak_mass = _find_rightmost_highest_peak(im_array, bin_width, logger)
-
-    if peak_mass is None:
-        logger.warning(f"Could not find peak in {filename}, keeping all data")
-        filtered_array = im_array
+    if enable_peak_removal:
+        peak_mass = _find_rightmost_highest_peak(im_array, bin_width, logger)
+        if peak_mass is None:
+            logger.warning(f"Could not find peak in {filename}, keeping all data")
+            filtered_array = im_array
+        else:
+            filtered_array = im_array[im_array >= peak_mass]
+            logger.debug(
+                f"{filename}: Removed {len(im_array) - len(filtered_array)} "
+                f"values before peak at {peak_mass:.2f} GeV"
+            )
     else:
-        filtered_array = im_array[im_array >= peak_mass]
-        logger.debug(
-            f"{filename}: Removed {len(im_array) - len(filtered_array)} "
-            f"values before peak at {peak_mass:.2f} GeV"
-        )
+        filtered_array = im_array
 
     if len(filtered_array) == 0:
         logger.warning(f"Array {filename} is empty after filtering, skipping")

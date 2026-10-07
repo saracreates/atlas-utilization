@@ -40,7 +40,7 @@ names:
 # ===RUN METADATA=============================================================
 run_metadata:
   run_name: *run_name
-  base_output_dir: "./output"
+  base_output_dir: "/DFS-L/DATA/whiteson/saumille/output_histcreation"
   batch_job_index: null                  # set by submit.sh (--batch-job-index)
   total_batch_jobs: null                 # set by submit.sh (--total-batch-jobs)
 
@@ -87,7 +87,7 @@ parsing_task_config:
   chunk_yield_threshold_bytes:  2147483648  # 2 GB
   count_retries_failed_files: 3
   fetching_metadata_timeout: 60
-  max_files_to_process: null             # null = all files; set e.g. 3 for a quick test
+  max_files_to_process: 500             # null = all files; set e.g. 3 for a quick test
   enable_jet_tagging: false              # when true, split Jets into BJets/Jets. Must give thresholds for btagging discriminants!
   jet_btagging_thresholds:
     btagDeepFlavB: 0.5
@@ -120,10 +120,18 @@ parsing_task_config:
     taus:      { pt_min: 20000.0, eta_max: 2.5 }
 
   # Delta-R overlap removal - rules run in order! - Thresholds are NOT optimized / thouroughly selected, just a starting point
+  # Priority cascade: muons > electrons > taus > photons > jets. 
   overlap_removal:
-    - { keep: taus,    remove: photons, delta_r_min: 0.2 }  # seen in hadronic tau's pi0->gamma gamma
-    - { keep: photons, remove: jets,    delta_r_min: 0.4 }
-    - { keep: taus,    remove: jets,    delta_r_min: 0.2 }
+    - { keep: muons,     remove: electrons, delta_r_min: 0.1 }   # was 0.05 - too tight, left a residual low-mass e0m0 spike (~1-4 GeV) in the 20260814_052715 run
+    - { keep: muons,     remove: taus,      delta_r_min: 0.2 }
+    - { keep: muons,     remove: photons,   delta_r_min: 0.4 }   # FSR / bremsstrahlung photon near muon
+    - { keep: muons,     remove: jets,      delta_r_min: 0.4 }
+    - { keep: electrons, remove: taus,      delta_r_min: 0.2 }   # electron shower seeding a hadronic tau candidate
+    - { keep: electrons, remove: photons,   delta_r_min: 0.4 }   # bremsstrahlung / conversion photon near electron
+    - { keep: electrons, remove: jets,      delta_r_min: 0.2 }   # electron's own energy deposit satisfying the jet algorithm
+    - { keep: taus,      remove: photons,   delta_r_min: 0.2 }   # seen in hadronic tau's pi0->gamma gamma
+    - { keep: taus,      remove: jets,      delta_r_min: 0.2 }
+    - { keep: photons,   remove: jets,      delta_r_min: 0.4 }
 
 # --- 2. Mass Calculation -----------------------------------------------------
 # Computes invariant masses for every valid particle combination per final state.
@@ -145,7 +153,7 @@ mass_calculation_task_config:
   min_count_particle_in_combination: 1   # min count per type
   max_count_particle_in_combination: 4   # max count per type was 4
   max_total_particles_in_combination: 4
-  min_events_per_fs: 100                 # drop final states with fewer events
+  min_events_per_fs: 1000                 # drop final states with fewer events
   include_subleading: false        # set true to include e1, j1, etc.
   max_subleading_index: 1          # highest rank index to consider
 
@@ -160,6 +168,7 @@ post_processing_task_config:
   peak_detection_bin_width_gev: 10.0 
   z_peak_cutoff: 115.0   # GeV; drop dilepton masses below this to cut the Z peak (0 disables)
   max_mass_cutoff: 10000.0   # GeV (10 TeV); drop masses above this in every channel (0 disables)
+  enable_peak_removal: false # currently buggy: find max wrongly by batch, not evening and drops bins before the peak
 
 # --- 4. Histogram Creation ---------------------------------------------------
 # Builds ROOT histograms from processed invariant-mass arrays.
